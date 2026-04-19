@@ -190,14 +190,8 @@ class PatchEmbedding(nn.Module):
         #   • uses kernel_size = patch_size
         #   • uses stride     = patch_size
         #   • has no padding (padding=0)
-        self.proj = nn.Conv2d(
-            in_channels=in_chans,
-            out_channels=embed_dim,
-            kernel_size=patch_size,
-            stride=patch_size,
-            padding=0,
-        )
-        
+        raise NotImplementedError("TODO 1.1: implement PatchEmbedding.__init__")
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO 1.1 ── Apply self.proj to x, then reshape the output from
         #   (B, D, G, G) → (B, N, D) where G = img_size // patch_size
@@ -205,10 +199,7 @@ class PatchEmbedding(nn.Module):
         #
         #   Hint: after the conv you have shape (B, D, G, G).
         #   Call .flatten(2) to get (B, D, N), then .transpose(1, 2) for (B, N, D).
-        x = self.proj(x)
-        x = x.flatten(2)
-        x = x.transpose(1, 2)
-        return x
+        raise NotImplementedError("TODO 1.1: implement PatchEmbedding.forward")
 
 
 # ---------------------------------------------------------------------------
@@ -278,11 +269,7 @@ class MultiHeadSelfAttention(nn.Module):
 
         # TODO 1.2 ── Create the four linear layers and the dropout layer
         #   described in the docstring above.
-        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.attn_drop = nn.Dropout(dropout)
+        raise NotImplementedError("TODO 1.2: implement MultiHeadSelfAttention.__init__")
 
     def forward(
         self, x: torch.Tensor
@@ -295,23 +282,8 @@ class MultiHeadSelfAttention(nn.Module):
         #     torch.matmul  or  the @ operator
         #     F.softmax(scores, dim=-1)
         #     tensor.transpose(1, 2).contiguous().reshape(B, T, self.embed_dim)
-        B, T, D = x.shape
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-        
-        q = q.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        attn_weights = F.softmax(scores, dim=-1)
-        attn_weights = self.attn_drop(attn_weights)
-        
-        context = torch.matmul(attn_weights, v)
-        context = context.transpose(1, 2).contiguous().reshape(B, T, self.embed_dim)
-        
-        out = self.out_proj(context)
-        return out, attn_weights
+        raise NotImplementedError("TODO 1.2: implement MultiHeadSelfAttention.forward")
+
 
 # ---------------------------------------------------------------------------
 
@@ -367,16 +339,7 @@ class TransformerBlock(nn.Module):
         #     nn.Dropout(dropout)
         #     nn.Linear(mlp_dim, embed_dim)
         #     nn.Dropout(dropout)
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.attn = MultiHeadSelfAttention(embed_dim, num_heads, dropout)
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, mlp_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(mlp_dim, embed_dim),
-            nn.Dropout(dropout),
-        )
+        raise NotImplementedError("TODO 1.3: implement TransformerBlock.__init__")
 
     def forward(
         self, x: torch.Tensor
@@ -392,12 +355,7 @@ class TransformerBlock(nn.Module):
         #     x           = x + self.mlp(self.norm2(x))
         #
         #   Return (x, attn_weights).
-        normed = self.norm1(x)
-         
-        attn_out, attn_weights = self.attn(normed)
-        x = x + attn_out
-        x = x + self.mlp(self.norm2(x))
-        return x, attn_weights
+        raise NotImplementedError("TODO 1.3: implement TransformerBlock.forward")
 
 
 # ---------------------------------------------------------------------------
@@ -494,35 +452,14 @@ class VisionTransformer(nn.Module):
         #   nn.Parameter so they are learnable).
         #
         #   blocks is an nn.ModuleList; create num_layers TransformerBlock instances.
-        self.patch_embed = PatchEmbedding(img_size=img_size, patch_size=patch_size,
-                                      in_chans=in_chans, embed_dim=embed_dim)
-        num_patches = self.patch_embed.num_patches
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
-        self.blocks = nn.ModuleList([
-            TransformerBlock(embed_dim, num_heads, mlp_dim, dropout)
-            for _ in range(num_layers)
-        ])
-        self.norm = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, num_classes)
+        raise NotImplementedError("TODO 1.4: implement VisionTransformer.__init__")
 
     def forward(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         # TODO 1.4 ── Follow the 9-step guide in the docstring.
-        x = self.patch_embed(x)
-        B = x.shape[0]
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat([cls_tokens, x], dim=1)
-        x = x + self.pos_embed
-        attn_list: List[torch.Tensor] = []
-        for blk in self.blocks:
-            x, attn = blk(x)
-            attn_list.append(attn)
-        x = self.norm(x)
-        cls_out = x[:, 0]
-        logits = self.head(cls_out)
-        return logits, attn_list
+        raise NotImplementedError("TODO 1.4: implement VisionTransformer.forward")
+
 
 # =============================================================================
 # Helper: build a VisionTransformer from a config dict
@@ -610,23 +547,7 @@ def get_cifar10_subset(
     #   4. For each class 0-9, collect its indices in the training set,
     #      then randomly sample 500 of them.
     #   5. Return (Subset(train_dataset, selected_indices), test_dataset).
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
-                             std =(0.2470, 0.2435, 0.2616)),
-    ])
-    train_dataset = datasets.CIFAR10(root=data_root, train=True, download=True, transform=transform)
-    test_dataset = datasets.CIFAR10(root=data_root, train=False, download=True, transform=transform)
-    
-    set_all_seeds(get_seed())
-    targets = train_dataset.targets
-    selected_indices: List[int] = []
-    for cls in range(10):
-        cls_indices = [i for i, t in enumerate(targets) if t == cls]
-        sampled = random.sample(cls_indices, 500)
-        selected_indices.extend(sampled)
-    
-    return Subset(train_dataset, selected_indices), test_dataset
+    raise NotImplementedError("TODO 1.5: implement get_cifar10_subset")
 
 
 def train_model(
@@ -707,76 +628,7 @@ def train_model(
     • Create checkpoint_dir if it doesn't exist: os.makedirs(..., exist_ok=True)
     """
     # TODO 1.6 ── Implement the training loop.
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    train_loader = DataLoader(train_subset, batch_size=config["batch_size"], shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
-
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
-
-    history: List[Dict] = []
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    for epoch in range(1, config["epochs"] + 1):
-        t0 = time.time()
-        model.train()
-        epoch_losses: List[float] = []
-        
-        for images, labels in train_loader:
-            logits, _ = model(images)
-            loss = criterion(logits, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_losses.append(loss.item())
-
-        scheduler.step()
-
-        model.eval()
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for images, labels in test_loader:
-                logits, _ = model(images)
-                preds = logits.argmax(dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-
-        epoch_time = time.time() - t0
-        train_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
-        val_accuracy = correct / total if total > 0 else 0.0
-
-        entry = {
-            "epoch": epoch,
-            "train_loss": round(train_loss, 4),
-            "val_accuracy": round(val_accuracy, 4),
-            "epoch_time_sec": round(epoch_time, 4),
-        }
-        history.append(entry)
-
-        if epoch in checkpoint_epochs:
-            ckpt = {
-                "model_state_dict": model.state_dict(),
-                "config": model.config,
-                "epoch": epoch,
-                "student_id": STUDENT_ID,
-            }
-            torch.save(ckpt, os.path.join(checkpoint_dir, f"baseline_epoch_{epoch}.pt"))
-
-    log = {
-        "student_id": STUDENT_ID,
-        "seed": get_seed(),
-        "config": config,
-        "history": history,
-        "final_val_accuracy": round(history[-1]["val_accuracy"], 4) if history else 0.0,
-        "total_params": total_params,
-    }
-
-    if log_path is not None:
-        _save_json(log, log_path)
-
-    return log
+    raise NotImplementedError("TODO 1.6: implement train_model")
 
 
 # =============================================================================
