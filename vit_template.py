@@ -493,14 +493,35 @@ class VisionTransformer(nn.Module):
         #   nn.Parameter so they are learnable).
         #
         #   blocks is an nn.ModuleList; create num_layers TransformerBlock instances.
-        raise NotImplementedError("TODO 1.4: implement VisionTransformer.__init__")
+        self.patch_embed = PatchEmbedding(img_size=img_size, patch_size=patch_size,
+                                      in_chans=in_chans, embed_dim=embed_dim)
+        num_patches = self.patch_embed.num_patches
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.blocks = nn.ModuleList([
+            TransformerBlock(embed_dim, num_heads, mlp_dim, dropout)
+            for _ in range(num_layers)
+        ])
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, num_classes)
 
     def forward(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         # TODO 1.4 ── Follow the 9-step guide in the docstring.
-        raise NotImplementedError("TODO 1.4: implement VisionTransformer.forward")
-
+        x = self.patch_embed(x)
+        B = x.shape[0]
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat([cls_tokens, x], dim=1)
+        x = x + self.pos_embed
+        attn_list: List[torch.Tensor] = []
+        for blk in self.blocks:
+            x, attn = blk(x)
+            attn_list.append(attn)
+        x = self.norm(x)
+        cls_out = x[:, 0]
+        logits = self.head(cls_out)
+        return logits, attn_list
 
 # =============================================================================
 # Helper: build a VisionTransformer from a config dict
@@ -588,7 +609,23 @@ def get_cifar10_subset(
     #   4. For each class 0-9, collect its indices in the training set,
     #      then randomly sample 500 of them.
     #   5. Return (Subset(train_dataset, selected_indices), test_dataset).
-    raise NotImplementedError("TODO 1.5: implement get_cifar10_subset")
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
+                             std =(0.2470, 0.2435, 0.2616)),
+    ])
+    train_dataset = datasets.CIFAR10(root=data_root, train=True, download=True, transform=transform)
+    test_dataset = datasets.CIFAR10(root=data_root, train=False, download=True, transform=transform)
+    
+    set_all_seeds(get_seed())
+    targets = train_dataset.targets
+    selected_indices: List[int] = []
+    for cls in range(10):
+        cls_indices = [i for i, t in enumerate(targets) if t == cls]
+        sampled = random.sample(cls_indices, 500)
+        selected_indices.extend(sampled)
+    
+    return Subset(train_dataset, selected_indices), test_dataset
 
 
 def train_model(
@@ -669,7 +706,76 @@ def train_model(
     • Create checkpoint_dir if it doesn't exist: os.makedirs(..., exist_ok=True)
     """
     # TODO 1.6 ── Implement the training loop.
-    raise NotImplementedError("TODO 1.6: implement train_model")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    train_loader = DataLoader(train_subset, batch_size=config["batch_size"], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
+
+    history: List[Dict] = []
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    for epoch in range(1, config["epochs"] + 1):
+        t0 = time.time()
+        model.train()
+        epoch_losses: List[float] = []
+        
+        for images, labels in train_loader:
+            logits, _ = model(images)
+            loss = criterion(logits, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            epoch_losses.append(loss.item())
+
+        scheduler.step()
+
+        model.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for images, labels in test_loader:
+                logits, _ = model(images)
+                preds = logits.argmax(dim=1)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+
+        epoch_time = time.time() - t0
+        train_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
+        val_accuracy = correct / total if total > 0 else 0.0
+
+        entry = {
+            "epoch": epoch,
+            "train_loss": round(train_loss, 4),
+            "val_accuracy": round(val_accuracy, 4),
+            "epoch_time_sec": round(epoch_time, 4),
+        }
+        history.append(entry)
+
+        if epoch in checkpoint_epochs:
+            ckpt = {
+                "model_state_dict": model.state_dict(),
+                "config": model.config,
+                "epoch": epoch,
+                "student_id": STUDENT_ID,
+            }
+            torch.save(ckpt, os.path.join(checkpoint_dir, f"baseline_epoch_{epoch}.pt"))
+
+    log = {
+        "student_id": STUDENT_ID,
+        "seed": get_seed(),
+        "config": config,
+        "history": history,
+        "final_val_accuracy": round(history[-1]["val_accuracy"], 4) if history else 0.0,
+        "total_params": total_params,
+    }
+
+    if log_path is not None:
+        _save_json(log, log_path)
+
+    return log
 
 
 # =============================================================================
@@ -1122,3 +1228,4 @@ Modes
 
 if __name__ == "__main__":
     main()
+
