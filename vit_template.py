@@ -190,8 +190,14 @@ class PatchEmbedding(nn.Module):
         #   • uses kernel_size = patch_size
         #   • uses stride     = patch_size
         #   • has no padding (padding=0)
-        raise NotImplementedError("TODO 1.1: implement PatchEmbedding.__init__")
-
+        self.proj = nn.Conv2d(
+            in_channels=in_chans,
+            out_channels=embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size,
+            padding=0,
+        )
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO 1.1 ── Apply self.proj to x, then reshape the output from
         #   (B, D, G, G) → (B, N, D) where G = img_size // patch_size
@@ -199,7 +205,10 @@ class PatchEmbedding(nn.Module):
         #
         #   Hint: after the conv you have shape (B, D, G, G).
         #   Call .flatten(2) to get (B, D, N), then .transpose(1, 2) for (B, N, D).
-        raise NotImplementedError("TODO 1.1: implement PatchEmbedding.forward")
+        x = self.proj(x)
+        x = x.flatten(2)
+        x = x.transpose(1, 2)
+        return x
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +278,11 @@ class MultiHeadSelfAttention(nn.Module):
 
         # TODO 1.2 ── Create the four linear layers and the dropout layer
         #   described in the docstring above.
-        raise NotImplementedError("TODO 1.2: implement MultiHeadSelfAttention.__init__")
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.attn_drop = nn.Dropout(dropout)
 
     def forward(
         self, x: torch.Tensor
@@ -282,8 +295,23 @@ class MultiHeadSelfAttention(nn.Module):
         #     torch.matmul  or  the @ operator
         #     F.softmax(scores, dim=-1)
         #     tensor.transpose(1, 2).contiguous().reshape(B, T, self.embed_dim)
-        raise NotImplementedError("TODO 1.2: implement MultiHeadSelfAttention.forward")
-
+        B, T, D = x.shape
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        
+        q = q.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.reshape(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_weights = self.attn_drop(attn_weights)
+        
+        context = torch.matmul(attn_weights, v)
+        context = context.transpose(1, 2).contiguous().reshape(B, T, self.embed_dim)
+        
+        out = self.out_proj(context)
+        return out, attn_weights
 
 # ---------------------------------------------------------------------------
 
@@ -339,7 +367,16 @@ class TransformerBlock(nn.Module):
         #     nn.Dropout(dropout)
         #     nn.Linear(mlp_dim, embed_dim)
         #     nn.Dropout(dropout)
-        raise NotImplementedError("TODO 1.3: implement TransformerBlock.__init__")
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.attn = MultiHeadSelfAttention(embed_dim, num_heads, dropout)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, mlp_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_dim, embed_dim),
+            nn.Dropout(dropout),
+        )
 
     def forward(
         self, x: torch.Tensor
@@ -355,8 +392,12 @@ class TransformerBlock(nn.Module):
         #     x           = x + self.mlp(self.norm2(x))
         #
         #   Return (x, attn_weights).
-        raise NotImplementedError("TODO 1.3: implement TransformerBlock.forward")
-
+        normed = self.norm1(x)
+         
+        attn_out, attn_weights = self.attn(normed)
+        x = x + attn_out
+        x = x + self.mlp(self.norm2(x))
+        return x, attn_weights
 
 # ---------------------------------------------------------------------------
 
