@@ -964,7 +964,42 @@ def compute_attention_entropy(
     • os.makedirs(os.path.dirname(output_path), exist_ok=True) before writing.
     """
     # TODO 3.1 -- Implement attention entropy computation.
-    raise NotImplementedError("TODO 3.1: implement compute_attention_entropy")
+    def compute_attention_entropy(
+        checkpoint_path: str = "checkpoints/baseline_epoch_20.pt",
+        output_path:     str = "analysis/attention_entropy.json",
+    ) -> Dict[str, float]:
+        set_all_seeds(get_seed())
+        model = _load_baseline_checkpoint(checkpoint_path)
+        _, test_dataset = get_cifar10_subset()
+        test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+        
+        num_layers = len(model.blocks)
+        layer_entropies = [[] for _ in range(num_layers)]
+        
+        with torch.no_grad():
+            for images, _ in test_loader:
+                logits, attn_list = model(images)
+                for layer_idx, attn in enumerate(attn_list):
+                    # attn shape: (B, h, T, T)
+                    # Extract CLS token attention (row 0 for each head)
+                    cls_attn = attn[:, :, 0, :]  # (B, h, T)
+                    layer_entropies[layer_idx].append(cls_attn)
+        
+        result = {}
+        for layer_idx in range(num_layers):
+            # Concatenate all batches: (total_images, h, T)
+            all_cls_attn = torch.cat(layer_entropies[layer_idx], dim=0)
+            # Average over images and heads: (T,)
+            mean_dist = all_cls_attn.mean(dim=0).mean(dim=0)
+            
+            # Compute entropy: H(p) = -∑ p_i * log2(p_i)
+            p = mean_dist.clamp(min=1e-9)
+            entropy = -(p * torch.log2(p)).sum().item()
+            result[f"layer_{layer_idx}"] = entropy
+        
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+        _save_json(result, output_path)
+        return result
 
 
 def compute_pos_embed_correlation(
@@ -1014,8 +1049,39 @@ def compute_pos_embed_correlation(
     • num_pairs = N * (N - 1) // 2
     """
     # TODO 3.2 -- Implement positional embedding correlation.
-    raise NotImplementedError("TODO 3.2: implement compute_pos_embed_correlation")
+    set_all_seeds(get_seed())
+    model = _load_baseline_checkpoint(checkpoint_path)
+    pos_embed = model.pos_embed.data[0, 1:, :]  
+    N, D = pos_embed.shape
+    normed = F.normalize(pos_embed, dim=-1)
+    S = torch.mm(normed, normed.t())
+    patch_size = model.config["patch_size"]
+    G = 32 // patch_size
 
+    coords = []
+    for k in range(N):
+        row = k // G
+        col = k % G
+        coords.append([row, col])
+    coords = torch.tensor(coords, dtype=torch.float32) 
+
+    diff = coords[:, None, :] - coords[None, :, :]  
+    E = diff.norm(dim=-1) 
+
+    triu_indices = torch.triu_indices(N, N, offset=1)
+    S_upper = S[triu_indices[0], triu_indices[1]].numpy()
+    E_upper = E[triu_indices[0], triu_indices[1]].numpy()
+    corr_matrix = np.corrcoef(S_upper, E_upper)
+    pearson_r = float(corr_matrix[0, 1])
+    num_pairs = N * (N - 1) // 2
+
+    result = {
+        "pearson_r": pearson_r,
+        "num_pairs": num_pairs,
+    }
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+    _save_json(result, output_path)
+    return result
 
 def compute_per_class_accuracy(
     checkpoint_path: str = "checkpoints/baseline_epoch_20.pt",
